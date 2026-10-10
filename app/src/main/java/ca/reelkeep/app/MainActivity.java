@@ -63,7 +63,10 @@ public class MainActivity extends Activity {
      request.addOption("-f","best[ext=mp4]/best");
      request.addOption("-o",new File(dir,"reel.%(ext)s").getAbsolutePath());
      msg("Downloading…");
-     YoutubeDL.getInstance().execute(request,(percent,eta)->runOnUiThread(()->progress.setProgress(Math.max(0,Math.min(100,(int)percent)))));
+     YoutubeDL.getInstance().execute(request, "ReelKeep-" + System.nanoTime(), (percent, eta, line) -> {
+       runOnUiThread(() -> progress.setProgress(Math.max(0, Math.min(100, percent.intValue()))));
+       return kotlin.Unit.INSTANCE;
+     });
      File[] found=dir.listFiles((d,n)->n.endsWith(".mp4")||n.endsWith(".webm"));
      if(found==null||found.length==0)throw new IOException("No video produced");
      File video=found[0]; String mime=video.getName().endsWith(".webm")?"video/webm":"video/mp4";
