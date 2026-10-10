@@ -19,6 +19,7 @@ public class MainActivity extends Activity {
  private TextView status;
  private ProgressBar progress;
  private Button download;
+ private Button updateEngine;
  private volatile boolean busy=false;
  private boolean initialized=false;
  private void msg(String message) { runOnUiThread(()->status.setText(message)); }
@@ -30,10 +31,16 @@ public class MainActivity extends Activity {
    TextView guide=new TextView(this);guide.setText("Share a public Instagram Reel here to clean tracking parameters and download it. No Meta login.");root.addView(guide);
    input=new EditText(this);input.setHint("Paste Instagram Reel link");input.setSingleLine(true);root.addView(input);
    download=new Button(this);download.setText("Download Reel");root.addView(download);
+   updateEngine=new Button(this);updateEngine.setText("Update downloader (yt-dlp)");root.addView(updateEngine);
    progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);root.addView(progress);
-   status=new TextView(this);status.setText("Ready");root.addView(status);
+   status=new TextView(this);status.setText("Ready");status.setTextIsSelectable(true);
+   ScrollView outputScroll=new ScrollView(this);
+   outputScroll.setFillViewport(false);
+   outputScroll.addView(status);
+   root.addView(outputScroll,new LinearLayout.LayoutParams(-1,0,1));
    setContentView(root);
    download.setOnClickListener(v->start());
+   updateEngine.setOnClickListener(v->updateDownloader());
    accept(getIntent());
  }
  @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);accept(i);}
@@ -48,8 +55,40 @@ public class MainActivity extends Activity {
    if(busy)return;
    String cleaned=ReelUrlCleaner.clean(input.getText().toString());
    if(cleaned==null){msg("Please provide a valid instagram.com/reel/ URL");return;}
-   input.setText(cleaned); busy=true;download.setEnabled(false);progress.setProgress(0);
+   input.setText(cleaned); busy=true;download.setEnabled(false);updateEngine.setEnabled(false);progress.setProgress(0);
    Executors.newSingleThreadExecutor().execute(()->downloadReel(cleaned));
+ }
+ private void updateDownloader(){
+   if(busy)return;
+   busy=true;
+   download.setEnabled(false);
+   updateEngine.setEnabled(false);
+   Executors.newSingleThreadExecutor().execute(()->{
+     try{
+       msg("Initializing downloader...");
+       if(!initialized){YoutubeDL.getInstance().init(getApplicationContext());initialized=true;}
+       msg("Checking for a newer yt-dlp version on GitHub...");
+       YoutubeDL.UpdateStatus result=YoutubeDL.getInstance().updateYoutubeDL(getApplicationContext(),YoutubeDL.UpdateChannel._STABLE);
+       msg("Downloader: "+String.valueOf(result)+". Try the Reel again.");
+     }catch(Exception e){
+       android.util.Log.e("ReelKeep","Update failed",e);
+       msg("Downloader update failed:\n"+readableError(e));
+     }finally{
+       busy=false;
+       runOnUiThread(()->{download.setEnabled(true);updateEngine.setEnabled(true);});
+     }
+   });
+ }
+ private static String readableError(Exception e){
+   String message=e.getMessage();
+   if(message==null||message.trim().isEmpty())message=e.toString();
+   Throwable cause=e.getCause();
+   if(cause!=null && (e.getMessage()==null || !e.getMessage().contains(cause.getMessage()==null?"":cause.getMessage())))
+      message+="\nCause: "+cause;
+   message=message.trim();
+   // Prevent very large output from burying the actionable end of the error.
+   if(message.length()>2400)message="...\n"+message.substring(message.length()-2400);
+   return message;
  }
  private void downloadReel(String url){
    File dir=new File(getCacheDir(),"reel"+System.nanoTime());
@@ -86,10 +125,10 @@ public class MainActivity extends Activity {
      msg("Saved to Gallery → Albums → ReelKeep");runOnUiThread(()->progress.setProgress(100));
    }catch(Exception error){
      android.util.Log.e("ReelKeep","Download failed",error);
-     msg("Download failed. Instagram may be blocking anonymous access.");
+     msg("Download failed:\n"+readableError(error)+"\n\nIf this mentions an outdated extractor, tap Update downloader and retry.");
    }finally{
      if(dir.exists()){File[] fs=dir.listFiles();if(fs!=null)for(File f:fs)f.delete();dir.delete();}
-     busy=false;runOnUiThread(()->download.setEnabled(true));
+     busy=false;runOnUiThread(()->{download.setEnabled(true);updateEngine.setEnabled(true);});
    }
  }
 }
