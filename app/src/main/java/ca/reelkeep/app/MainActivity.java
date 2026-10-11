@@ -8,6 +8,9 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.view.View;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.widget.*;
 import com.yausername.youtubedl_android.YoutubeDL;
 import com.yausername.youtubedl_android.YoutubeDLRequest;
@@ -28,9 +31,9 @@ public class MainActivity extends Activity {
    LinearLayout root=new LinearLayout(this);
    root.setPadding(32,50,32,24);root.setOrientation(LinearLayout.VERTICAL);
    TextView title=new TextView(this);title.setText("ReelKeep");title.setTextSize(28);root.addView(title);
-   TextView guide=new TextView(this);guide.setText("Share a public Instagram Reel here to clean tracking parameters and download it. No Meta login.");root.addView(guide);
-   input=new EditText(this);input.setHint("Paste Instagram Reel link");input.setSingleLine(true);root.addView(input);
-   download=new Button(this);download.setText("Download Reel");root.addView(download);
+   TextView guide=new TextView(this);guide.setText("Share an Instagram Reel, YouTube video, or YouTube Short here. Tracking parameters are removed. No account login.");root.addView(guide);
+   input=new EditText(this);input.setHint("Shared video link (Instagram / YouTube)");input.setSingleLine(false);input.setMinLines(2);input.setMaxLines(4);input.setSelectAllOnFocus(true);root.addView(input);
+   download=new Button(this);download.setText("Download Video");root.addView(download);
    updateEngine=new Button(this);updateEngine.setText("Update downloader (yt-dlp)");root.addView(updateEngine);
    progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);root.addView(progress);
    status=new TextView(this);status.setText("Ready");status.setTextIsSelectable(true);
@@ -45,16 +48,44 @@ public class MainActivity extends Activity {
  }
  @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);accept(i);}
  private void accept(Intent intent){
-   if(intent==null||!Intent.ACTION_SEND.equals(intent.getAction()))return;
-   CharSequence t=intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
-   String cleaned=ReelUrlCleaner.clean(t==null?null:t.toString());
-   if(cleaned==null){msg("Not a supported Instagram Reel link");return;}
-   input.setText(cleaned); start();
+   if(intent==null)return;
+   // Shared apps vary: EXTRA_TEXT, EXTRA_SUBJECT, ClipData, or intent.data.
+   StringBuilder candidates=new StringBuilder();
+   CharSequence body=intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+   if(body!=null)candidates.append(body).append('\n');
+   CharSequence subject=intent.getCharSequenceExtra(Intent.EXTRA_SUBJECT);
+   if(subject!=null)candidates.append(subject).append('\n');
+   if(intent.getData()!=null)candidates.append(intent.getData()).append('\n');
+   ClipData clips=intent.getClipData();
+   if(clips!=null){
+     for(int i=0;i<Math.min(12,clips.getItemCount());i++){
+       ClipData.Item item=clips.getItemAt(i);
+       if(item.getText()!=null)candidates.append(item.getText()).append('\n');
+       if(item.getUri()!=null)candidates.append(item.getUri()).append('\n');
+     }
+   }
+   String raw=candidates.toString();
+   if(raw.trim().isEmpty()){
+     if(Intent.ACTION_SEND.equals(intent.getAction())||Intent.ACTION_VIEW.equals(intent.getAction())){
+       msg("This share didn't contain a video URL. Use Share → Copy link, then paste the link here.");
+     }
+     return;
+   }
+   String cleaned=ReelUrlCleaner.clean(raw);
+   if(cleaned==null){
+     input.setText(raw.length()>1000?raw.substring(0,1000):raw);
+     msg("A link was received but wasn't recognized as an Instagram Reel, YouTube video, or Short. Try Copy link.");
+     return;
+   }
+   input.setText(cleaned);
+   input.setSelection(cleaned.length());
+   msg("Received cleaned link. Starting download…");
+   start();
  }
  private void start(){
    if(busy)return;
    String cleaned=ReelUrlCleaner.clean(input.getText().toString());
-   if(cleaned==null){msg("Please provide a valid instagram.com/reel/ URL");return;}
+   if(cleaned==null){msg("Provide an Instagram Reel, YouTube video, or YouTube Shorts link");return;}
    input.setText(cleaned); busy=true;download.setEnabled(false);updateEngine.setEnabled(false);progress.setProgress(0);
    Executors.newSingleThreadExecutor().execute(()->downloadReel(cleaned));
  }
@@ -69,7 +100,7 @@ public class MainActivity extends Activity {
        if(!initialized){YoutubeDL.getInstance().init(getApplicationContext());initialized=true;}
        msg("Checking for a newer yt-dlp version on GitHub...");
        YoutubeDL.UpdateStatus result=YoutubeDL.getInstance().updateYoutubeDL(getApplicationContext(),YoutubeDL.UpdateChannel._STABLE);
-       msg("Downloader: "+String.valueOf(result)+". Try the Reel again.");
+       msg("Downloader: "+String.valueOf(result)+". Try downloading again.");
      }catch(Exception e){
        android.util.Log.e("ReelKeep","Update failed",e);
        msg("Downloader update failed:\n"+readableError(e));
@@ -110,7 +141,7 @@ public class MainActivity extends Activity {
      if(found==null||found.length==0)throw new IOException("No video produced");
      File video=found[0]; String mime=video.getName().endsWith(".webm")?"video/webm":"video/mp4";
      ContentValues cv=new ContentValues();
-     cv.put(MediaStore.Video.Media.DISPLAY_NAME,"reel_"+System.currentTimeMillis()+(mime.equals("video/mp4")?".mp4":".webm"));
+     cv.put(MediaStore.Video.Media.DISPLAY_NAME,"video_"+System.currentTimeMillis()+(mime.equals("video/mp4")?".mp4":".webm"));
      cv.put(MediaStore.Video.Media.MIME_TYPE,mime);
      cv.put(MediaStore.Video.Media.RELATIVE_PATH,Environment.DIRECTORY_MOVIES+"/ReelKeep");
      cv.put(MediaStore.Video.Media.IS_PENDING,1);
@@ -125,7 +156,7 @@ public class MainActivity extends Activity {
      msg("Saved to Gallery → Albums → ReelKeep");runOnUiThread(()->progress.setProgress(100));
    }catch(Exception error){
      android.util.Log.e("ReelKeep","Download failed",error);
-     msg("Download failed:\n"+readableError(error)+"\n\nIf this mentions an outdated extractor, tap Update downloader and retry.");
+     msg("Download failed:\n"+readableError(error)+"\n\nIf the error mentions an outdated extractor, tap Update downloader and retry. YouTube may require sign-in for restricted videos; this app does not use your account.");
    }finally{
      if(dir.exists()){File[] fs=dir.listFiles();if(fs!=null)for(File f:fs)f.delete();dir.delete();}
      busy=false;runOnUiThread(()->{download.setEnabled(true);updateEngine.setEnabled(true);});
