@@ -30,7 +30,7 @@ public class MainActivity extends Activity {
    super.onCreate(b);
    LinearLayout root=new LinearLayout(this);
    root.setPadding(32,50,32,24);root.setOrientation(LinearLayout.VERTICAL);
-   TextView title=new TextView(this);title.setText("ReelKeep");title.setTextSize(28);root.addView(title);
+   TextView title=new TextView(this);title.setText("ReelKeep v0.2.0");title.setTextSize(28);root.addView(title);
    TextView guide=new TextView(this);guide.setText("Share an Instagram Reel, YouTube video, or YouTube Short here. Tracking parameters are removed. No account login.");root.addView(guide);
    input=new EditText(this);input.setHint("Shared video link (Instagram / YouTube)");input.setSingleLine(false);input.setMinLines(2);input.setMaxLines(4);input.setSelectAllOnFocus(true);root.addView(input);
    download=new Button(this);download.setText("Download Video");root.addView(download);
