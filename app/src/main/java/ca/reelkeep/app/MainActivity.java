@@ -14,6 +14,7 @@ import android.content.Context;
 import android.widget.*;
 import com.yausername.youtubedl_android.YoutubeDL;
 import com.yausername.youtubedl_android.YoutubeDLRequest;
+import com.yausername.ffmpeg.FFmpeg;
 import java.io.*;
 import java.util.concurrent.Executors;
 
@@ -30,7 +31,7 @@ public class MainActivity extends Activity {
    super.onCreate(b);
    LinearLayout root=new LinearLayout(this);
    root.setPadding(32,50,32,24);root.setOrientation(LinearLayout.VERTICAL);
-   TextView title=new TextView(this);title.setText("ReelKeep v0.2.0");title.setTextSize(28);root.addView(title);
+   TextView title=new TextView(this);title.setText("ReelKeep v0.3.0");title.setTextSize(28);root.addView(title);
    TextView guide=new TextView(this);guide.setText("Share an Instagram Reel, YouTube video, or YouTube Short here. Tracking parameters are removed. No account login.");root.addView(guide);
    input=new EditText(this);input.setHint("Shared video link (Instagram / YouTube)");input.setSingleLine(false);input.setMinLines(2);input.setMaxLines(4);input.setSelectAllOnFocus(true);root.addView(input);
    download=new Button(this);download.setText("Download Video");root.addView(download);
@@ -97,7 +98,7 @@ public class MainActivity extends Activity {
    Executors.newSingleThreadExecutor().execute(()->{
      try{
        msg("Initializing downloader...");
-       if(!initialized){YoutubeDL.getInstance().init(getApplicationContext());initialized=true;}
+       if(!initialized){YoutubeDL.getInstance().init(getApplicationContext());FFmpeg.getInstance().init(getApplicationContext());initialized=true;}
        msg("Checking for a newer yt-dlp version on GitHub...");
        YoutubeDL.UpdateStatus result=YoutubeDL.getInstance().updateYoutubeDL(getApplicationContext(),YoutubeDL.UpdateChannel._STABLE);
        msg("Downloader: "+String.valueOf(result)+". Try downloading again.");
@@ -130,18 +131,25 @@ public class MainActivity extends Activity {
      request.addOption("--ignore-config");
      request.addOption("--no-playlist");
      request.addOption("--no-mtime");
-     request.addOption("-f","best[ext=mp4]/best");
+     if(url.contains("youtube.com/") || url.contains("youtu.be/")){
+       // Prefer compatible MP4 video and M4A audio, merging adaptive streams with FFmpeg.
+       // Fall back to other available adaptive or combined formats.
+       request.addOption("-f","bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b");
+       request.addOption("--merge-output-format","mp4");
+     }else{
+       request.addOption("-f","best[ext=mp4]/best");
+     }
      request.addOption("-o",new File(dir,"reel.%(ext)s").getAbsolutePath());
      msg("Downloading…");
      YoutubeDL.getInstance().execute(request, "ReelKeep-" + System.nanoTime(), (percent, eta, line) -> {
        runOnUiThread(() -> progress.setProgress(Math.max(0, Math.min(100, percent.intValue()))));
        return kotlin.Unit.INSTANCE;
      });
-     File[] found=dir.listFiles((d,n)->n.endsWith(".mp4")||n.endsWith(".webm"));
+     File[] found=dir.listFiles((d,n)->n.endsWith(".mp4")||n.endsWith(".webm")||n.endsWith(".mkv"));
      if(found==null||found.length==0)throw new IOException("No video produced");
-     File video=found[0]; String mime=video.getName().endsWith(".webm")?"video/webm":"video/mp4";
+     File video=found[0]; String mime=video.getName().endsWith(".webm")?"video/webm":video.getName().endsWith(".mkv")?"video/x-matroska":"video/mp4";
      ContentValues cv=new ContentValues();
-     cv.put(MediaStore.Video.Media.DISPLAY_NAME,"video_"+System.currentTimeMillis()+(mime.equals("video/mp4")?".mp4":".webm"));
+     cv.put(MediaStore.Video.Media.DISPLAY_NAME,"video_"+System.currentTimeMillis()+(mime.equals("video/mp4")?".mp4":mime.equals("video/webm")?".webm":".mkv"));
      cv.put(MediaStore.Video.Media.MIME_TYPE,mime);
      cv.put(MediaStore.Video.Media.RELATIVE_PATH,Environment.DIRECTORY_MOVIES+"/ReelKeep");
      cv.put(MediaStore.Video.Media.IS_PENDING,1);
