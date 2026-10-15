@@ -27,6 +27,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Tests, lint, and APKs
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleRelease -PunsignedReleaseForVerification
+      - name: Adaptive merge regression
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python3 tools/test_download_fixture.py
       - name: Nested native alignment
         run: python3 tools/check_native_alignment.py app/build/outputs/apk/release/app-release-unsigned.apk
       - uses: actions/upload-artifact@v4
