@@ -1,0 +1,7 @@
+<resources>
+    <item name="video_url" type="id"/>
+    <item name="download_video" type="id"/>
+    <item name="update_engine" type="id"/>
+    <item name="cancel_download" type="id"/>
+    <item name="download_status" type="id"/>
+</resources>

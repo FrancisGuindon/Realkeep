@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_version">ReelKeep v%1$s</string>
+    <string name="guide">Share an Instagram Reel, YouTube video, or YouTube Short here. Tracking parameters are removed. No account login.</string>
+    <string name="video_link">Shared video link (Instagram / YouTube)</string>
+    <string name="download_video">Download Video</string>
+    <string name="update_engine">Update downloader (yt-dlp)</string>
+    <string name="cancel_download">Cancel download</string>
+</resources>
