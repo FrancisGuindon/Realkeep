@@ -1,4 +1,37 @@
 plugins { id 'com.android.application' }
+configurations { upstreamFfmpeg { transitive = false } }
+
+def nativeOutput = layout.buildDirectory.dir('generated/native')
+def downloaderResource = layout.buildDirectory.file('generated/downloader/res/raw/ytdlp')
+def patchedFfmpeg = layout.buildDirectory.file('generated/ffmpeg/ffmpeg-0.18.1-16kb.aar')
+def prepareDownloader = tasks.register('prepareDownloader', Exec) {
+  inputs.file(rootProject.file('tools/prepare_downloader.py'))
+  outputs.file(downloaderResource)
+  commandLine 'python3', rootProject.file('tools/prepare_downloader.py'), downloaderResource.get().asFile
+}
+def prepareNative = tasks.register('prepareNative', Exec) {
+  inputs.file(rootProject.file('tools/rebuild-webp.sh'))
+  outputs.dir(nativeOutput)
+  doFirst {
+    environment 'ANDROID_HOME', android.sdkDirectory.absolutePath
+    environment 'WEBP_OUTPUT_DIR', nativeOutput.get().asFile.absolutePath
+    environment 'WEBP_WORK_DIR', layout.buildDirectory.dir('webp-build').get().asFile.absolutePath
+    commandLine 'bash', rootProject.file('tools/rebuild-webp.sh')
+  }
+}
+def prepareFfmpeg = tasks.register('prepareFfmpeg', Exec) {
+  dependsOn prepareNative
+  inputs.files(configurations.upstreamFfmpeg)
+  inputs.dir(nativeOutput.map { it.dir('overrides') })
+  inputs.files(rootProject.file('tools/prepare_ffmpeg.py'), rootProject.file('tools/check_native_alignment.py'))
+  outputs.file(patchedFfmpeg)
+  doFirst {
+    commandLine 'python3', rootProject.file('tools/prepare_ffmpeg.py'), configurations.upstreamFfmpeg.singleFile,
+      patchedFfmpeg.get().asFile, nativeOutput.get().dir('overrides').asFile
+  }
+}
+def releaseStore = System.getenv('REELKEEP_STORE_FILE')
+def releasePassword = System.getenv('REELKEEP_STORE_PASSWORD')
 android {
   namespace 'ca.reelkeep.app'
   compileSdk 35
@@ -8,16 +41,44 @@ android {
     targetSdk 34
     versionCode 4
     versionName '0.4.0'
+    buildConfigField 'String', 'DOWNLOADER_VERSION', '"2026.08.19"'
     ndk { abiFilters 'arm64-v8a', 'x86_64' }
   }
-  compileOptions {
-    sourceCompatibility JavaVersion.VERSION_17
-    targetCompatibility JavaVersion.VERSION_17
+  sourceSets {
+    main.res.srcDir(layout.buildDirectory.dir('generated/downloader/res'))
+    main.assets.srcDir(nativeOutput.map { it.dir('assets') })
   }
+  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+  buildFeatures { buildConfig true }
+  signingConfigs {
+    release {
+      if (releaseStore) storeFile file(releaseStore)
+      storePassword releasePassword
+      keyAlias System.getenv('REELKEEP_KEY_ALIAS') ?: 'reelkeep'
+      keyPassword System.getenv('REELKEEP_KEY_PASSWORD') ?: releasePassword
+    }
+  }
+  buildTypes { release { debuggable false; signingConfig = (releaseStore && releasePassword) ? signingConfigs.release : null } }
+  // The downloader launches executables from this extracted native directory.
   packaging { jniLibs { useLegacyPackaging true } }
+  testOptions {
+    unitTests.includeAndroidResources = true
+    unitTests.all {
+      systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'
+    }
+  }
+}
+tasks.configureEach { task ->
+  if (task.name == 'preBuild') task.dependsOn prepareDownloader, prepareNative
+  if (task.name == 'preReleaseBuild') task.doFirst {
+    if ((!releaseStore || !releasePassword) && !project.hasProperty('unsignedReleaseForVerification'))
+      throw new GradleException('Release signing requires REELKEEP_STORE_FILE and REELKEEP_STORE_PASSWORD')
+  }
 }
 dependencies {
   implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
-  implementation 'io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1'
+  upstreamFfmpeg 'io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1@aar'
+  implementation files(patchedFfmpeg).builtBy(prepareFfmpeg)
   testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.robolectric:robolectric:4.14.1'
 }
